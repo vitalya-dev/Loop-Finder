@@ -132,6 +132,8 @@ def main():
     parser.add_argument("--min", type=float, default=10.0, help="Минимальная длительность лупа в секундах (по умолчанию: 10.0)")
     parser.add_argument("--max", type=float, default=30.0, help="Максимальная длительность лупа в секундах (по умолчанию: 30.0)")
     parser.add_argument("-c", "--count", type=int, default=5, help="Количество лупов для поиска (по умолчанию: 5)")
+    parser.add_argument("-w", "--window", type=int, default=10, help="Строгость поиска/размер окна в кадрах (по умолчанию: 10)")
+    parser.add_argument("--min-dist", type=float, default=3.0, help="Минимальная дистанция между лупами в секундах (по умолчанию: 3.0)")
     
     args = parser.parse_args()
     
@@ -147,15 +149,13 @@ def main():
     if beat_frames is None or beat_times is None or chromagram is None: 
         sys.exit(1)
     
-    # Теперь функция возвращает список пар (start, end)
-    top_loops = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max, args.count)
+    # Передаем новый параметр args.min_dist в функцию
+    top_loops = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max, args.count, args.window, args.min_dist)
     if not top_loops: 
         sys.exit(1)
     
-    # Разделяем имя файла и расширение для корректной нумерации (например: file.wav -> file, .wav)
     base_name, ext = os.path.splitext(args.output)
     
-    # Проходим по всем найденным лупам и сохраняем их
     for i, (start_t, end_t) in enumerate(top_loops):
         if args.count == 1:
             output_path = args.output
