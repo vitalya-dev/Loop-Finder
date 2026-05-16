@@ -115,6 +115,7 @@ def main():
     parser.add_argument("-o", "--output", default="perfect_loop.wav", help="Путь для сохранения лупа (по умолчанию: perfect_loop.wav)")
     parser.add_argument("--min", type=float, default=10.0, help="Минимальная длительность лупа в секундах (по умолчанию: 10.0)")
     parser.add_argument("--max", type=float, default=30.0, help="Максимальная длительность лупа в секундах (по умолчанию: 30.0)")
+    parser.add_argument("-c", "--count", type=int, default=5, help="Количество лупов для поиска (по умолчанию: 5)")
     
     args = parser.parse_args()
     
@@ -123,7 +124,6 @@ def main():
         sys.exit(1)
         
     y, sr = load_audio(args.input)
-    # Явная проверка обеих переменных убедит Pyright, что дальше пойдут только корректные данные
     if y is None or sr is None: 
         sys.exit(1)
     
@@ -132,11 +132,9 @@ def main():
         sys.exit(1)
     
     start_t, end_t = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max)
-    # Аналогично проверяем обе переменные времени на None
     if start_t is None or end_t is None: 
         sys.exit(1)
     
-    # Теперь Pyright на 100% уверен, что передаются нужные типы: np.ndarray, int, float, float
     export_loop(y, sr, start_t, end_t, args.output)
     print("[+] Готово! Скрипт завершил работу.")
 
