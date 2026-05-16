@@ -3,11 +3,13 @@ import os
 import sys
 import warnings
 import argparse
+from typing import Tuple, Optional, Any
+
 import librosa
 import numpy as np
 import soundfile as sf
 
-def load_audio(file_path: str, target_sr: int = 22050):
+def load_audio(file_path: str, target_sr: int = 22050) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Загружает аудиофайл, конвертирует в моно и приводит к заданной частоте дискретизации.
     """
@@ -16,12 +18,13 @@ def load_audio(file_path: str, target_sr: int = 22050):
     try:
         y, sr = librosa.load(file_path, sr=target_sr, mono=True)
         print(f"[+] Загрузка завершена успешно. Сэмплов: {len(y)}")
-        return y, sr
+        # Принудительно возвращаем sr как int, чтобы Pyright не сомневался
+        return y, int(sr)
     except Exception as e:
         print(f"[-] Ошибка при загрузке файла: {e}")
         return None, None
 
-def extract_features(y: np.ndarray, sr: int):
+def extract_features(y: np.ndarray, sr: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Извлекает биты и хромаграмму из аудио.
     """
@@ -38,13 +41,14 @@ def extract_features(y: np.ndarray, sr: int):
         print(f"[-] Ошибка при извлечении характеристик: {e}")
         return None, None, None
 
-def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float):
+def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float) -> Tuple[Optional[float], Optional[float]]:
     """
     Ищет идеальный луп по матрице хромаграмм среди доступных битов.
     """
     print(f"[*] Поиск идеальной петли в диапазоне {min_duration}-{max_duration} сек...")
     best_score = float('inf')
-    best_loop = (None, None)
+    # Изначально задаем тип как Optional[float]
+    best_loop: Tuple[Optional[float], Optional[float]] = (None, None)
     window_size = 10 
     
     num_beats = len(beat_frames)
@@ -76,10 +80,10 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
             distance = np.linalg.norm(start_features - end_features)
             
             if distance < best_score:
-                best_score = distance
-                best_loop = (start_time, end_time)
+                best_score = float(distance)
+                best_loop = (float(start_time), float(end_time))
                 
-    if best_loop[0] is not None:
+    if best_loop[0] is not None and best_loop[1] is not None:
         print(f"[+] Успех! Найден лучший повтор:")
         print(f"    Старт: {best_loop[0]:.3f} сек.")
         print(f"    Конец: {best_loop[1]:.3f} сек.")
@@ -89,7 +93,7 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
         
     return best_loop[0], best_loop[1]
 
-def export_loop(y: np.ndarray, sr: int, start_time: float, end_time: float, output_path: str):
+def export_loop(y: np.ndarray, sr: int, start_time: float, end_time: float, output_path: str) -> bool:
     """
     Вырезает кусок аудио и сохраняет его на диск.
     """
@@ -119,14 +123,20 @@ def main():
         sys.exit(1)
         
     y, sr = load_audio(args.input)
-    if y is None: sys.exit(1)
+    # Явная проверка обеих переменных убедит Pyright, что дальше пойдут только корректные данные
+    if y is None or sr is None: 
+        sys.exit(1)
     
     beat_frames, beat_times, chromagram = extract_features(y, sr)
-    if beat_frames is None: sys.exit(1)
+    if beat_frames is None or beat_times is None or chromagram is None: 
+        sys.exit(1)
     
     start_t, end_t = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max)
-    if start_t is None: sys.exit(1)
+    # Аналогично проверяем обе переменные времени на None
+    if start_t is None or end_t is None: 
+        sys.exit(1)
     
+    # Теперь Pyright на 100% уверен, что передаются нужные типы: np.ndarray, int, float, float
     export_loop(y, sr, start_t, end_t, args.output)
     print("[+] Готово! Скрипт завершил работу.")
 
