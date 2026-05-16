@@ -1,80 +1,50 @@
-import librosa
+#!/usr/bin/env python3
+import os
+import sys
 import warnings
+import argparse
+import librosa
+import numpy as np
+import soundfile as sf
 
 def load_audio(file_path: str, target_sr: int = 22050):
     """
     Загружает аудиофайл, конвертирует в моно и приводит к заданной частоте дискретизации.
-    
-    :param file_path: Путь к аудиофайлу.
-    :param target_sr: Желаемая частота дискретизации (по умолчанию 22050 Гц для баланса скорости и точности).
-    :return: Кортеж (audio_time_series, sample_rate) или (None, None) в случае ошибки.
     """
-    # Игнорируем предупреждения PySoundFile, которые часто возникают при чтении mp3
     warnings.filterwarnings("ignore", category=UserWarning)
-    
-    print(f"Загрузка аудиофайла: {file_path}...")
+    print(f"[*] Загрузка аудиофайла: {file_path}...")
     try:
-        # sr=target_sr приводит аудио к единому sample rate
-        # mono=True переводит в моно для упрощения поиска частотных паттернов
-        audio_time_series, sample_rate = librosa.load(file_path, sr=target_sr, mono=True)
-        print("Загрузка успешно завершена.")
-        return audio_time_series, sample_rate
+        y, sr = librosa.load(file_path, sr=target_sr, mono=True)
+        print(f"[+] Загрузка завершена успешно. Сэмплов: {len(y)}")
+        return y, sr
     except Exception as e:
-        print(f"Ошибка при загрузке файла {file_path}: {e}")
+        print(f"[-] Ошибка при загрузке файла: {e}")
         return None, None
-
-import librosa
-import numpy as np
 
 def extract_features(y: np.ndarray, sr: int):
     """
-    Извлекает биты и хромаграмму из аудио для последующего анализа.
-    
-    :param y: Временной ряд аудио (numpy array).
-    :param sr: Частота дискретизации.
-    :return: Кортеж (beat_frames, beat_times, chromagram) или (None, None, None) при ошибке.
+    Извлекает биты и хромаграмму из аудио.
     """
-    print("Анализ трека: извлечение битов и хромаграммы...")
+    print("[*] Анализ трека: извлечение темпа, битов и гармонии...")
     try:
-        # Получаем индексы кадров (фреймов), где происходят удары (биты), и темп
         tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-        
-        # Конвертируем индексы кадров в реальное время (в секундах)
         beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-        
-        # Строим хромаграмму (распределение энергии по 12 нотам)
         chromagram = librosa.feature.chroma_stft(y=y, sr=sr)
         
-        # Обработка темпа для корректного вывода в разных версиях librosa
         tempo_val = tempo[0] if isinstance(tempo, np.ndarray) else tempo
-        print(f"Анализ завершен. Найдено {len(beat_frames)} битов. Оценочный темп: {tempo_val:.2f} BPM.")
-        
+        print(f"[+] Анализ завершен. Найдено {len(beat_frames)} битов. Темп: {tempo_val:.2f} BPM.")
         return beat_frames, beat_times, chromagram
     except Exception as e:
-        print(f"Ошибка при извлечении характеристик аудио: {e}")
+        print(f"[-] Ошибка при извлечении характеристик: {e}")
         return None, None, None
 
-import numpy as np
-
-def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float = 10.0, max_duration: float = 30.0):
+def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float):
     """
-    Ищет идеальный луп, сравнивая хромаграммы на разных битах.
-    
-    :param beat_frames: Массив индексов кадров битов.
-    :param beat_times: Массив времени битов в секундах.
-    :param chromagram: Хромаграмма трека.
-    :param min_duration: Минимальная длина лупа в секундах.
-    :param max_duration: Максимальная длина лупа в секундах.
-    :return: Кортеж (start_time, end_time) лучшего лупа или (None, None).
+    Ищет идеальный луп по матрице хромаграмм среди доступных битов.
     """
-    print(f"Поиск идеального лупа от {min_duration} до {max_duration} секунд...")
-    
-    best_score = float('inf')  # Ищем минимальное расстояние (максимальную схожесть)
+    print(f"[*] Поиск идеальной петли в диапазоне {min_duration}-{max_duration} сек...")
+    best_score = float('inf')
     best_loop = (None, None)
-    
-    # Размер окна для сравнения (в кадрах). Мы берем небольшой срез после бита.
-    # 10 кадров при нашем sample_rate — это около доли секунды, 
-    # ровно столько, чтобы "захватить" звучание аккорда или баса.
     window_size = 10 
     
     num_beats = len(beat_frames)
@@ -84,7 +54,6 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
         start_frame = beat_frames[i]
         start_time = beat_times[i]
         
-        # Проверяем, не выходит ли окно за пределы хромаграммы
         if start_frame + window_size >= max_frames:
             continue
             
@@ -98,15 +67,12 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
             if duration < min_duration:
                 continue
             if duration > max_duration:
-                break # Биты отсортированы по времени, дальше проверять нет смысла
+                break
                 
             if end_frame + window_size >= max_frames:
                 continue
                 
             end_features = chromagram[:, end_frame : end_frame + window_size]
-            
-            # Вычисляем Евклидово расстояние между матрицами хромаграмм.
-            # Чем ближе значение к нулю, тем идентичнее звучат эти моменты.
             distance = np.linalg.norm(start_features - end_features)
             
             if distance < best_score:
@@ -114,8 +80,55 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
                 best_loop = (start_time, end_time)
                 
     if best_loop[0] is not None:
-        print(f"Найден идеальный луп: {best_loop[0]:.3f} сек. -> {best_loop[1]:.3f} сек. (Длительность: {best_loop[1]-best_loop[0]:.3f} сек.)")
+        print(f"[+] Успех! Найден лучший повтор:")
+        print(f"    Старт: {best_loop[0]:.3f} сек.")
+        print(f"    Конец: {best_loop[1]:.3f} сек.")
+        print(f"    Длина петли: {best_loop[1] - best_loop[0]:.3f} сек. (Score: {best_score:.4f})")
     else:
-        print("Не удалось найти подходящий луп в заданном диапазоне времени.")
+        print("[-] Не удалось найти подходящую петлю в заданном диапазоне времени.")
         
     return best_loop[0], best_loop[1]
+
+def export_loop(y: np.ndarray, sr: int, start_time: float, end_time: float, output_path: str):
+    """
+    Вырезает кусок аудио и сохраняет его на диск.
+    """
+    print(f"[*] Экспорт фрагмента в {output_path}...")
+    try:
+        start_sample = int(start_time * sr)
+        end_sample = int(end_time * sr)
+        loop_audio = y[start_sample:end_sample]
+        sf.write(output_path, loop_audio, sr)
+        print(f"[+] Экспорт успешно завершен.")
+        return True
+    except Exception as e:
+        print(f"[-] Ошибка при экспорте файла: {e}")
+        return False
+
+def main():
+    parser = argparse.ArgumentParser(description="Автоматический поиск идеального аудио-лупа для зацикленных видео и гифок.")
+    parser.add_argument("input", help="Путь к исходному аудиофайлу (mp3, wav, flac и т.д.)")
+    parser.add_argument("-o", "--output", default="perfect_loop.wav", help="Путь для сохранения лупа (по умолчанию: perfect_loop.wav)")
+    parser.add_argument("--min", type=float, default=10.0, help="Минимальная длительность лупа в секундах (по умолчанию: 10.0)")
+    parser.add_argument("--max", type=float, default=30.0, help="Максимальная длительность лупа в секундах (по умолчанию: 30.0)")
+    
+    args = parser.parse_args()
+    
+    if not os.path.exists(args.input):
+        print(f"[-] Ошибка: Файл {args.input} не найден.")
+        sys.exit(1)
+        
+    y, sr = load_audio(args.input)
+    if y is None: sys.exit(1)
+    
+    beat_frames, beat_times, chromagram = extract_features(y, sr)
+    if beat_frames is None: sys.exit(1)
+    
+    start_t, end_t = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max)
+    if start_t is None: sys.exit(1)
+    
+    export_loop(y, sr, start_t, end_t, args.output)
+    print("[+] Готово! Скрипт завершил работу.")
+
+if __name__ == '__main__':
+    main()
