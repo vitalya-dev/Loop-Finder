@@ -41,17 +41,18 @@ def extract_features(y: np.ndarray, sr: int) -> Tuple[Optional[np.ndarray], Opti
         print(f"[-] Ошибка при извлечении характеристик: {e}")
         return None, None, None
 
-def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float, count: int = 5) -> list:
+def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float, count: int = 5, window_size: int = 10, min_dist: float = 3.0) -> list:
     """
-    Ищет несколько идеальных лупов по матрице хромаграмм среди доступных битов.
+    Ищет несколько уникальных идеальных лупов по матрице хромаграмм среди доступных битов,
+    избегая дубликатов, расположенных слишком близко друг к другу.
     """
-    print(f"[*] Поиск топ-{count} идеальных петель в диапазоне {min_duration}-{max_duration} сек...")
+    print(f"[*] Поиск топ-{count} уникальных петель в диапазоне {min_duration}-{max_duration} сек (размер окна: {window_size})...")
     found_loops = []
-    window_size = 10 
     
     num_beats = len(beat_frames)
     max_frames = chromagram.shape[1]
     
+    # 1. Собираем абсолютно все возможные комбинации
     for i in range(num_beats):
         start_frame = beat_frames[i]
         start_time = beat_times[i]
@@ -79,18 +80,32 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
             
             found_loops.append((distance, float(start_time), float(end_time)))
             
-    # Сортируем все найденные петли по возрастанию score (чем меньше дистанция, тем лучше)
+    # 2. Сортируем все найденные петли по возрастанию score (от лучших к худшим)
     found_loops.sort(key=lambda x: x[0])
     
-    # Отбираем нужное количество (count) лучших результатов
+    # 3. Отбираем только уникальные петли (отсеиваем близкие дубликаты)
     top_loops = []
-    for i, loop_data in enumerate(found_loops[:count]):
+    for loop_data in found_loops:
+        # Если мы уже набрали нужное количество, останавливаем поиск
+        if len(top_loops) >= count:
+            break
+            
         score, start_t, end_t = loop_data
-        top_loops.append((start_t, end_t))
-        print(f"[+] Найден луп #{i+1}: Старт: {start_t:.3f} сек, Конец: {end_t:.3f} сек, Длина: {end_t - start_t:.3f} сек (Score: {score:.4f})")
+        is_too_close = False
         
+        # Проверяем дистанцию до уже добавленных в топ лупов
+        for sel_start, sel_end in top_loops:
+            if abs(start_t - sel_start) < min_dist:
+                is_too_close = True
+                break
+                
+        # Если луп достаточно далеко от других, берем его
+        if not is_too_close:
+            top_loops.append((start_t, end_t))
+            print(f"[+] Найден уникальный луп #{len(top_loops)}: Старт: {start_t:.3f} сек, Конец: {end_t:.3f} сек, Длина: {end_t - start_t:.3f} сек (Score: {score:.4f})")
+            
     if not top_loops:
-        print("[-] Не удалось найти подходящие петли в заданном диапазоне времени.")
+        print("[-] Не удалось найти подходящие уникальные петли в заданном диапазоне времени.")
         
     return top_loops
 
