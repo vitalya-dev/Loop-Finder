@@ -109,15 +109,38 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
         
     return top_loops
 
-def export_loop(y: np.ndarray, sr: int, start_time: float, end_time: float, output_path: str) -> bool:
+def export_loop(y: np.ndarray, sr: int, start_time: float, end_time: float, output_path: str, crossfade_duration: float = 0.05) -> bool:
     """
-    Вырезает кусок аудио и сохраняет его на диск.
+    Вырезает кусок аудио, применяет кроссфейд для бесшовной склейки и сохраняет на диск.
     """
-    print(f"[*] Экспорт фрагмента в {output_path}...")
+    print(f"[*] Экспорт фрагмента в {output_path} (crossfade: {crossfade_duration} сек)...")
     try:
         start_sample = int(start_time * sr)
         end_sample = int(end_time * sr)
-        loop_audio = y[start_sample:end_sample]
+        # Копируем основу лупа
+        loop_audio = y[start_sample:end_sample].copy()
+        
+        fade_samples = int(crossfade_duration * sr)
+        
+        # Проверяем, есть ли в оригинальном аудио данные после конца лупа для "хвоста"
+        if end_sample + fade_samples > len(y):
+            fade_samples = len(y) - end_sample
+            
+        # Защита: кроссфейд не должен быть длиннее половины самого лупа
+        if fade_samples > len(loop_audio) // 2:
+            fade_samples = len(loop_audio) // 2
+            
+        if fade_samples > 0:
+            # Берем "хвост" оригинального трека сразу после конца лупа
+            tail = y[end_sample : end_sample + fade_samples].copy()
+            
+            # Создаем кривые: нарастание для начала лупа, затухание для хвоста
+            fade_in = np.linspace(0.0, 1.0, fade_samples)
+            fade_out = np.linspace(1.0, 0.0, fade_samples)
+            
+            # Магический микс: накладываем затухающий хвост на нарастающее начало лупа
+            loop_audio[:fade_samples] = (loop_audio[:fade_samples] * fade_in) + (tail * fade_out)
+            
         sf.write(output_path, loop_audio, sr)
         print(f"[+] Экспорт успешно завершен.")
         return True
@@ -134,6 +157,7 @@ def main():
     parser.add_argument("-c", "--count", type=int, default=5, help="Количество лупов для поиска (по умолчанию: 5)")
     parser.add_argument("-w", "--window", type=int, default=10, help="Строгость поиска/размер окна в кадрах (по умолчанию: 10)")
     parser.add_argument("--min-dist", type=float, default=3.0, help="Минимальная дистанция между лупами в секундах (по умолчанию: 3.0)")
+    parser.add_argument("--crossfade", type=float, default=0.05, help="Длительность кроссфейда в секундах (по умолчанию: 0.05)")
     
     args = parser.parse_args()
     
@@ -149,7 +173,6 @@ def main():
     if beat_frames is None or beat_times is None or chromagram is None: 
         sys.exit(1)
     
-    # Передаем новый параметр args.min_dist в функцию
     top_loops = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max, args.count, args.window, args.min_dist)
     if not top_loops: 
         sys.exit(1)
@@ -162,7 +185,8 @@ def main():
         else:
             output_path = f"{base_name}_{i+1}{ext}"
             
-        export_loop(y, sr, start_t, end_t, output_path)
+        # Передаем новый параметр args.crossfade в функцию экспорта
+        export_loop(y, sr, start_t, end_t, output_path, args.crossfade)
         
     print("[+] Готово! Скрипт завершил работу.")
 
