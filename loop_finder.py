@@ -41,14 +41,12 @@ def extract_features(y: np.ndarray, sr: int) -> Tuple[Optional[np.ndarray], Opti
         print(f"[-] Ошибка при извлечении характеристик: {e}")
         return None, None, None
 
-def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float) -> Tuple[Optional[float], Optional[float]]:
+def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: np.ndarray, min_duration: float, max_duration: float, count: int = 5) -> list:
     """
-    Ищет идеальный луп по матрице хромаграмм среди доступных битов.
+    Ищет несколько идеальных лупов по матрице хромаграмм среди доступных битов.
     """
-    print(f"[*] Поиск идеальной петли в диапазоне {min_duration}-{max_duration} сек...")
-    best_score = float('inf')
-    # Изначально задаем тип как Optional[float]
-    best_loop: Tuple[Optional[float], Optional[float]] = (None, None)
+    print(f"[*] Поиск топ-{count} идеальных петель в диапазоне {min_duration}-{max_duration} сек...")
+    found_loops = []
     window_size = 10 
     
     num_beats = len(beat_frames)
@@ -77,21 +75,24 @@ def find_best_loop(beat_frames: np.ndarray, beat_times: np.ndarray, chromagram: 
                 continue
                 
             end_features = chromagram[:, end_frame : end_frame + window_size]
-            distance = np.linalg.norm(start_features - end_features)
+            distance = float(np.linalg.norm(start_features - end_features))
             
-            if distance < best_score:
-                best_score = float(distance)
-                best_loop = (float(start_time), float(end_time))
-                
-    if best_loop[0] is not None and best_loop[1] is not None:
-        print(f"[+] Успех! Найден лучший повтор:")
-        print(f"    Старт: {best_loop[0]:.3f} сек.")
-        print(f"    Конец: {best_loop[1]:.3f} сек.")
-        print(f"    Длина петли: {best_loop[1] - best_loop[0]:.3f} сек. (Score: {best_score:.4f})")
-    else:
-        print("[-] Не удалось найти подходящую петлю в заданном диапазоне времени.")
+            found_loops.append((distance, float(start_time), float(end_time)))
+            
+    # Сортируем все найденные петли по возрастанию score (чем меньше дистанция, тем лучше)
+    found_loops.sort(key=lambda x: x[0])
+    
+    # Отбираем нужное количество (count) лучших результатов
+    top_loops = []
+    for i, loop_data in enumerate(found_loops[:count]):
+        score, start_t, end_t = loop_data
+        top_loops.append((start_t, end_t))
+        print(f"[+] Найден луп #{i+1}: Старт: {start_t:.3f} сек, Конец: {end_t:.3f} сек, Длина: {end_t - start_t:.3f} сек (Score: {score:.4f})")
         
-    return best_loop[0], best_loop[1]
+    if not top_loops:
+        print("[-] Не удалось найти подходящие петли в заданном диапазоне времени.")
+        
+    return top_loops
 
 def export_loop(y: np.ndarray, sr: int, start_time: float, end_time: float, output_path: str) -> bool:
     """
