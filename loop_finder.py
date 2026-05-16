@@ -132,11 +132,23 @@ def main():
     if beat_frames is None or beat_times is None or chromagram is None: 
         sys.exit(1)
     
-    start_t, end_t = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max)
-    if start_t is None or end_t is None: 
+    # Теперь функция возвращает список пар (start, end)
+    top_loops = find_best_loop(beat_frames, beat_times, chromagram, args.min, args.max, args.count)
+    if not top_loops: 
         sys.exit(1)
     
-    export_loop(y, sr, start_t, end_t, args.output)
+    # Разделяем имя файла и расширение для корректной нумерации (например: file.wav -> file, .wav)
+    base_name, ext = os.path.splitext(args.output)
+    
+    # Проходим по всем найденным лупам и сохраняем их
+    for i, (start_t, end_t) in enumerate(top_loops):
+        if args.count == 1:
+            output_path = args.output
+        else:
+            output_path = f"{base_name}_{i+1}{ext}"
+            
+        export_loop(y, sr, start_t, end_t, output_path)
+        
     print("[+] Готово! Скрипт завершил работу.")
 
 if __name__ == '__main__':
